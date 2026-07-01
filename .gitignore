@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+cfd_tracker.db
+streamlit.log
+streamlit.err.log
+streamlit.pid

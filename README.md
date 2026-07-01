@@ -1,0 +1,55 @@
+# Adtran (ADTN) CFD Tracker
+
+Local Streamlit dashboard for tracking a CFD position on Adtran (ticker `ADTN`,
+Nasdaq): live price, transaction log (tranches), overnight financing cost,
+breakeven price, and target price for a given profit %.
+
+## Setup (one-time)
+
+```powershell
+python -m venv venv
+.\venv\Scripts\pip.exe install -r requirements.txt
+```
+
+## Run
+
+```powershell
+.\start.ps1     # starts the app in the background, waits until it responds, prints the URL
+.\stop.ps1      # stops it (kills the whole process tree)
+```
+
+Open the printed URL (default `http://localhost:8501`) in a browser.
+
+Optional custom port: `.\start.ps1 -Port 8600`.
+
+Logs: `streamlit.log` / `streamlit.err.log`. PID: `streamlit.pid`.
+
+## Using the app
+
+- **Sidebar**: language (PL/EN), ticker, overnight financing rate (annual %,
+  broker-specific), target profit %. Click "Save settings" to persist.
+- **Add transaction**: date, quantity, price per share, commission — one row
+  per tranche (you bought in two, so add both).
+- **Tranches table**: shows nights held and accrued overnight fee per tranche.
+- **Position summary**: total quantity, avg entry price, total commission,
+  accrued overnight fee, breakeven price, target price, unrealized P/L at the
+  current live price.
+
+## Data & storage
+
+- Transactions and settings persist in `cfd_tracker.db` (SQLite, in this
+  folder). Restarting the app or the machine does not lose data.
+- Live price: `yfinance` (primary), direct Yahoo chart HTTP endpoint
+  (fallback if yfinance breaks). No API key needed for either.
+
+## Important caveat
+
+This tracks the **underlying exchange price** for ADTN, not your broker's
+actual CFD quote. A real CFD price includes the broker's spread and financing
+terms, so it will differ slightly from what this app shows. Breakeven/target
+calculations are based on the exchange price as a proxy.
+
+Overnight fee is also a simplification: it's computed as
+`quantity × current price × annual rate% / 365 × nights held` per tranche.
+Real brokers mark-to-market daily and some triple-charge over weekends — this
+app does neither, so treat the accrued overnight fee as an approximation.
