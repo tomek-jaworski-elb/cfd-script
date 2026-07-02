@@ -49,7 +49,17 @@ leaves a real process running while `stop` reports "already stopped".
 ## Using the app
 
 - **Sidebar**: language (PL/EN), ticker, overnight financing rate (annual %,
-  broker-specific), target profit %. Click "Save settings" to persist.
+  broker-specific), target profit %, auto-refresh interval (seconds, default
+  60). Click "Save settings" to persist.
+- **Live price** (grouped in one card): price, source, and an open/closed
+  market badge with today's regular session hours converted to Warsaw local
+  time (NYSE/Nasdaq regular session is 9:30-16:00 US Eastern, Mon-Fri;
+  exchange holidays aren't accounted for). Below that, a live-ticking row
+  shows "as of HH:MM:SS (Ns ago)" and a "next update in MM:SS" countdown,
+  updating every second on their own without reloading the rest of the page.
+  The actual price refetch (and P/L recalculation) happens on the configured
+  auto-refresh interval — a full-page rerun. A manual "Refresh price" button
+  is also available.
 - **Add transaction**: date, quantity, price per share, commission — one row
   per tranche (you bought in two, so add both).
 - **Tranches table**: shows nights held and accrued overnight fee per tranche.

@@ -9,6 +9,7 @@ DEFAULT_SETTINGS = {
     "overnight_rate_annual_pct": "6.8",
     "profit_target_pct": "5.0",
     "lang": "pl",
+    "refresh_interval_sec": "60",
 }
 
 

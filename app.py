@@ -1,7 +1,9 @@
 """Streamlit dashboard for tracking an Adtran (ADTN) CFD position:
 live price, transaction log, overnight financing cost, breakeven & target price.
 """
-from datetime import date
+import time
+from datetime import date, datetime, time as dtime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -15,6 +17,21 @@ st.set_page_config(page_title="Adtran CFD Tracker", layout="wide")
 db.init_db()
 
 CURRENCY = "USD"
+NY_TZ = ZoneInfo("America/New_York")
+WARSAW_TZ = ZoneInfo("Europe/Warsaw")
+MARKET_OPEN_T = dtime(9, 30)
+MARKET_CLOSE_T = dtime(16, 0)
+
+
+def market_status():
+    """Regular NYSE/Nasdaq session (9:30-16:00 ET, Mon-Fri), converted to Warsaw
+    local time. Does not account for exchange holidays."""
+    now_ny = datetime.now(NY_TZ)
+    is_open = now_ny.weekday() < 5 and MARKET_OPEN_T <= now_ny.time() < MARKET_CLOSE_T
+    open_warsaw = datetime.combine(now_ny.date(), MARKET_OPEN_T, NY_TZ).astimezone(WARSAW_TZ)
+    close_warsaw = datetime.combine(now_ny.date(), MARKET_CLOSE_T, NY_TZ).astimezone(WARSAW_TZ)
+    return is_open, open_warsaw, close_warsaw
+
 
 # --- Language (persisted setting, switchable per session) ---
 lang_options = {"pl": "Polski", "en": "English"}
@@ -53,18 +70,64 @@ with st.sidebar:
         value=float(db.get_setting("profit_target_pct")),
         step=0.5,
     )
+    refresh_interval = int(
+        st.number_input(
+            t(lang, "refresh_interval_label"),
+            min_value=15,
+            max_value=3600,
+            value=int(float(db.get_setting("refresh_interval_sec"))),
+            step=15,
+            help=t(lang, "refresh_interval_help"),
+        )
+    )
     if st.button(t(lang, "save_settings_button")):
         db.set_setting("ticker", ticker)
         db.set_setting("overnight_rate_annual_pct", str(overnight_rate))
         db.set_setting("profit_target_pct", str(profit_target_pct))
+        db.set_setting("refresh_interval_sec", str(refresh_interval))
         st.success(t(lang, "settings_saved"))
 
     st.caption(t(lang, "cfd_note"))
 
 
-@st.cache_data(ttl=30)
-def cached_price(tkr: str):
-    return pricing.get_current_price(tkr)
+if "last_full_rerun" not in st.session_state:
+    st.session_state.last_full_rerun = time.monotonic()
+
+
+@st.fragment(run_every=f"{refresh_interval}s")
+def _autorefresh_tick():
+    # A fragment's body also runs immediately on every normal (non-scheduled)
+    # script execution, not just on its run_every timer - without this guard,
+    # st.rerun() below would fire on every rerun and loop forever. Only escalate
+    # to a full-app rerun once the configured interval has actually elapsed.
+    if time.monotonic() - st.session_state.last_full_rerun >= refresh_interval:
+        st.session_state.last_full_rerun = time.monotonic()
+        st.rerun()  # default scope inside a fragment is a full-app rerun
+
+
+_autorefresh_tick()
+
+
+@st.fragment(run_every="1s")
+def _live_clock(fetched_at, interval_sec, lang):
+    # Fragment-scoped only (no st.rerun()) - ticks every second without
+    # forcing a full-page rerun, so price/P/L stay put between real refreshes.
+    elapsed = (datetime.now(WARSAW_TZ) - fetched_at).total_seconds()
+    seconds_ago = max(0, int(elapsed))
+    seconds_left = max(0, int(interval_sec - elapsed))
+    c1, c2 = st.columns(2)
+    c1.metric(
+        t(lang, "as_of_metric_label"),
+        f"{fetched_at.strftime('%H:%M:%S')} ({t(lang, 'seconds_ago_suffix', s=seconds_ago)})",
+    )
+    c2.metric(t(lang, "next_update_metric"), f"{seconds_left // 60:02d}:{seconds_left % 60:02d}")
+
+
+@st.cache_data(ttl=refresh_interval)
+def cached_price(tkr: str, _interval: int):
+    data = pricing.get_current_price(tkr)
+    data["fetched_at"] = datetime.now(WARSAW_TZ)
+    return data
 
 
 @st.cache_data(ttl=3600)
@@ -75,11 +138,31 @@ def cached_pln_rate():
 # --- Live price ---
 st.subheader(t(lang, "live_price_header"))
 try:
-    price_data = cached_price(ticker)
-    col1, col2, col3 = st.columns(3)
-    col1.metric(t(lang, "price_metric_label", ticker=ticker), f"{price_data['price']:.2f} {CURRENCY}")
-    col2.metric(t(lang, "source_metric_label"), price_data["source"])
-    col3.metric(t(lang, "as_of_metric_label"), date.today().isoformat())
+    price_data = cached_price(ticker, refresh_interval)
+    fetched_at = price_data["fetched_at"]
+    is_open, open_warsaw, close_warsaw = market_status()
+
+    with st.container(border=True):
+        col1, col2, col3 = st.columns([2, 1, 1])
+        col1.metric(t(lang, "price_metric_label", ticker=ticker), f"{price_data['price']:.2f} {CURRENCY}")
+        col2.metric(t(lang, "source_metric_label"), price_data["source"])
+        with col3:
+            st.badge(
+                t(lang, "market_open") if is_open else t(lang, "market_closed"),
+                icon="🟢" if is_open else "🔴",
+                color="green" if is_open else "gray",
+            )
+            st.caption(
+                t(
+                    lang,
+                    "market_hours_caption",
+                    open=open_warsaw.strftime("%H:%M"),
+                    close=close_warsaw.strftime("%H:%M"),
+                )
+            )
+
+        _live_clock(fetched_at, refresh_interval, lang)
+
     current_price = price_data["price"]
 except pricing.PriceFetchError as e:
     st.error(t(lang, "price_fetch_error", error=e))
@@ -116,7 +199,18 @@ else:
         ["id", "trade_date", "quantity", "price", "commission", "nights_held", "overnight_fee"]
     ]
     tranche_df["overnight_fee"] = tranche_df["overnight_fee"].round(2)
-    st.dataframe(tranche_df, use_container_width=True, hide_index=True)
+    tranche_df = tranche_df.rename(
+        columns={
+            "id": t(lang, "id_col"),
+            "trade_date": t(lang, "date_label"),
+            "quantity": t(lang, "quantity_label"),
+            "price": t(lang, "price_per_share_label"),
+            "commission": t(lang, "commission_label"),
+            "nights_held": t(lang, "nights_held_col"),
+            "overnight_fee": t(lang, "overnight_fee_col"),
+        }
+    )
+    st.dataframe(tranche_df, width="stretch", hide_index=True)
 
     del_id = st.selectbox(
         t(lang, "delete_select_label"),
