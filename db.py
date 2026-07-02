@@ -6,7 +6,7 @@ DB_PATH = Path(__file__).parent / "cfd_tracker.db"
 
 DEFAULT_SETTINGS = {
     "ticker": "ADTN",
-    "overnight_rate_annual_pct": "6.0",
+    "overnight_rate_annual_pct": "6.8",
     "profit_target_pct": "5.0",
     "lang": "pl",
 }

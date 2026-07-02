@@ -6,21 +6,38 @@ breakeven price, and target price for a given profit %.
 
 ## Setup (one-time)
 
+**Windows (PowerShell):**
 ```powershell
 python -m venv venv
 .\venv\Scripts\pip.exe install -r requirements.txt
 ```
 
+**Linux / WSL:**
+```bash
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+```
+
 ## Run
 
+**Windows (PowerShell):**
 ```powershell
 .\start.ps1     # starts the app in the background, waits until it responds, prints the URL
 .\stop.ps1      # stops it (kills the whole process tree)
 ```
 
-Open the printed URL (default `http://localhost:8501`) in a browser.
-
 Optional custom port: `.\start.ps1 -Port 8600`.
+
+**Linux / WSL:**
+```bash
+chmod +x start.sh stop.sh   # one-time
+./start.sh        # starts the app in the background, waits until it responds, prints the URL
+./stop.sh         # stops it (kills the whole process group)
+```
+
+Optional custom port: `./start.sh 8600`. Requires `curl` (used to poll readiness).
+
+Open the printed URL (default `http://localhost:8501`) in a browser.
 
 Logs: `streamlit.log` / `streamlit.err.log`. PID: `streamlit.pid`.
 

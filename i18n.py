@@ -44,6 +44,9 @@ STRINGS = {
         "breakeven_metric": "Breakeven price",
         "target_price_metric": "Target price (+{pct:g}%)",
         "pnl_metric": "Unrealized P/L at current price",
+        "pnl_pln_metric": "Unrealized P/L in PLN",
+        "usd_pln_rate_metric": "USD/PLN rate",
+        "pln_rate_fetch_error": "Could not fetch USD/PLN rate: {error}",
     },
     "pl": {
         "page_title": "Adtran (ADTN) CFD Tracker",
@@ -88,6 +91,9 @@ STRINGS = {
         "breakeven_metric": "Cena progu rentowności",
         "target_price_metric": "Cena docelowa (+{pct:g}%)",
         "pnl_metric": "Niezrealizowany zysk/strata przy aktualnym kursie",
+        "pnl_pln_metric": "Niezrealizowany zysk/strata w PLN",
+        "usd_pln_rate_metric": "Kurs USD/PLN",
+        "pln_rate_fetch_error": "Nie udało się pobrać kursu USD/PLN: {error}",
     },
 }
 

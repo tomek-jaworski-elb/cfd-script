@@ -14,6 +14,8 @@ from i18n import t
 st.set_page_config(page_title="Adtran CFD Tracker", layout="wide")
 db.init_db()
 
+CURRENCY = "USD"
+
 # --- Language (persisted setting, switchable per session) ---
 lang_options = {"pl": "Polski", "en": "English"}
 if "lang" not in st.session_state:
@@ -65,12 +67,17 @@ def cached_price(tkr: str):
     return pricing.get_current_price(tkr)
 
 
+@st.cache_data(ttl=3600)
+def cached_pln_rate():
+    return pricing.get_usd_pln_rate()
+
+
 # --- Live price ---
 st.subheader(t(lang, "live_price_header"))
 try:
     price_data = cached_price(ticker)
     col1, col2, col3 = st.columns(3)
-    col1.metric(t(lang, "price_metric_label", ticker=ticker), f"{price_data['price']:.2f} {price_data['currency']}")
+    col1.metric(t(lang, "price_metric_label", ticker=ticker), f"{price_data['price']:.2f} {CURRENCY}")
     col2.metric(t(lang, "source_metric_label"), price_data["source"])
     col3.metric(t(lang, "as_of_metric_label"), date.today().isoformat())
     current_price = price_data["price"]
@@ -123,17 +130,41 @@ else:
     breakeven = summary["breakeven_price"]
     target = calc.target_price_for_profit(breakeven, profit_target_pct)
     pnl = calc.unrealized_pnl(summary["total_qty"], current_price, breakeven)
+    pnl_pct = (pnl / summary["total_invested"] * 100) if summary["total_invested"] else 0.0
 
     m1, m2, m3 = st.columns(3)
     m1.metric(t(lang, "total_qty_metric"), f"{summary['total_qty']:.2f}")
-    m2.metric(t(lang, "avg_entry_price_metric"), f"{summary['avg_entry_price']:.4f}")
-    m3.metric(t(lang, "total_commission_metric"), f"{summary['total_commission']:.2f}")
+    m2.metric(t(lang, "avg_entry_price_metric"), f"{summary['avg_entry_price']:.4f} {CURRENCY}")
+    m3.metric(t(lang, "total_commission_metric"), f"{summary['total_commission']:.2f} {CURRENCY}")
 
     m4, m5, m6 = st.columns(3)
-    m4.metric(t(lang, "overnight_fee_metric"), f"{summary['total_overnight_fee']:.2f}")
-    m5.metric(t(lang, "total_invested_metric"), f"{summary['total_invested']:.2f}")
-    m6.metric(t(lang, "breakeven_metric"), f"{breakeven:.4f}")
+    m4.metric(t(lang, "overnight_fee_metric"), f"{summary['total_overnight_fee']:.2f} {CURRENCY}")
+    m5.metric(t(lang, "total_invested_metric"), f"{summary['total_invested']:.2f} {CURRENCY}")
+    m6.metric(t(lang, "breakeven_metric"), f"{breakeven:.4f} {CURRENCY}")
 
     m7, m8 = st.columns(2)
-    m7.metric(t(lang, "target_price_metric", pct=profit_target_pct), f"{target:.4f}")
-    m8.metric(t(lang, "pnl_metric"), f"{pnl:+.2f}", delta=f"{current_price:.2f} vs {breakeven:.4f}")
+    m7.metric(t(lang, "target_price_metric", pct=profit_target_pct), f"{target:.4f} {CURRENCY}")
+    m8.metric(
+        t(lang, "pnl_metric"),
+        f"{pnl:+.2f} {CURRENCY}",
+        delta=f"{pnl_pct:+.2f}%",
+        help=f"{current_price:.2f} vs {breakeven:.4f}",
+    )
+
+    try:
+        pln_rate_data = cached_pln_rate()
+        pln_rate = pln_rate_data["rate"]
+        pnl_pln = pnl * pln_rate
+        m9, m10 = st.columns(2)
+        m9.metric(
+            t(lang, "pnl_pln_metric"),
+            f"{pnl_pln:+.2f} PLN",
+            delta=f"{pnl_pct:+.2f}%",
+        )
+        m10.metric(
+            t(lang, "usd_pln_rate_metric"),
+            f"{pln_rate:.4f}",
+            delta=pln_rate_data["source"],
+        )
+    except pricing.PriceFetchError as e:
+        st.warning(t(lang, "pln_rate_fetch_error", error=e))

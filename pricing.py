@@ -52,3 +52,35 @@ def get_current_price(ticker: str) -> dict:
             raise PriceFetchError(
                 f"yfinance failed ({primary_err}); fallback failed ({fallback_err})"
             ) from fallback_err
+
+
+NBP_USD_RATE_URL = "https://api.nbp.pl/api/exchangerates/rates/a/usd/?format=json"
+
+
+def _fetch_usd_pln_via_nbp() -> dict:
+    resp = requests.get(NBP_USD_RATE_URL, headers=_HEADERS, timeout=10)
+    resp.raise_for_status()
+    rate = float(resp.json()["rates"][0]["mid"])
+    return {"rate": rate, "source": "nbp"}
+
+
+def _fetch_usd_pln_via_yfinance() -> dict:
+    info = yf.Ticker("USDPLN=X").fast_info
+    price = info.get("lastPrice") if hasattr(info, "get") else info.last_price
+    if price is None:
+        raise PriceFetchError("yfinance returned no USD/PLN rate")
+    return {"rate": float(price), "source": "yfinance"}
+
+
+def get_usd_pln_rate() -> dict:
+    """Return {rate, source}. NBP reference rate (updated once per trading day) is
+    primary since it's the official Polish rate; yfinance live quote is fallback."""
+    try:
+        return _fetch_usd_pln_via_nbp()
+    except Exception as primary_err:
+        try:
+            return _fetch_usd_pln_via_yfinance()
+        except Exception as fallback_err:
+            raise PriceFetchError(
+                f"NBP failed ({primary_err}); fallback failed ({fallback_err})"
+            ) from fallback_err
