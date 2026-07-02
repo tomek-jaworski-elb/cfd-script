@@ -73,14 +73,14 @@ def _fetch_usd_pln_via_yfinance() -> dict:
 
 
 def get_usd_pln_rate() -> dict:
-    """Return {rate, source}. NBP reference rate (updated once per trading day) is
-    primary since it's the official Polish rate; yfinance live quote is fallback."""
+    """Return {rate, source}. yfinance live market quote is primary (updates
+    continuously); NBP's once-per-business-day reference rate is fallback."""
     try:
-        return _fetch_usd_pln_via_nbp()
+        return _fetch_usd_pln_via_yfinance()
     except Exception as primary_err:
         try:
-            return _fetch_usd_pln_via_yfinance()
+            return _fetch_usd_pln_via_nbp()
         except Exception as fallback_err:
             raise PriceFetchError(
-                f"NBP failed ({primary_err}); fallback failed ({fallback_err})"
+                f"yfinance failed ({primary_err}); NBP fallback failed ({fallback_err})"
             ) from fallback_err

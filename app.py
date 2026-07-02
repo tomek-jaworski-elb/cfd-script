@@ -3,6 +3,7 @@ live price, transaction log, overnight financing cost, breakeven & target price.
 """
 import time
 from datetime import date, datetime, time as dtime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -21,6 +22,14 @@ NY_TZ = ZoneInfo("America/New_York")
 WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 MARKET_OPEN_T = dtime(9, 30)
 MARKET_CLOSE_T = dtime(16, 0)
+VERSION_FILE = Path(__file__).parent / "VERSION"
+
+
+def app_version():
+    """Reads the app version and its release date from the VERSION file
+    (line 1: semantic version, line 2: release date)."""
+    version, released = VERSION_FILE.read_text().strip().splitlines()
+    return version, released
 
 
 def market_status():
@@ -89,6 +98,9 @@ with st.sidebar:
 
     st.caption(t(lang, "cfd_note"))
 
+    app_ver, app_ver_date = app_version()
+    st.caption(t(lang, "app_version_caption", version=app_ver, date=app_ver_date))
+
 
 if "last_full_rerun" not in st.session_state:
     st.session_state.last_full_rerun = time.monotonic()
@@ -130,9 +142,11 @@ def cached_price(tkr: str, _interval: int):
     return data
 
 
-@st.cache_data(ttl=3600)
-def cached_pln_rate():
-    return pricing.get_usd_pln_rate()
+@st.cache_data(ttl=refresh_interval)
+def cached_pln_rate(_interval: int):
+    data = pricing.get_usd_pln_rate()
+    data["fetched_at"] = datetime.now(WARSAW_TZ)
+    return data
 
 
 # --- Live price ---
@@ -168,7 +182,12 @@ except pricing.PriceFetchError as e:
     st.error(t(lang, "price_fetch_error", error=e))
     current_price = st.number_input(t(lang, "manual_price_label"), min_value=0.0, step=0.01)
 
-st.button(t(lang, "refresh_price_button"), on_click=cached_price.clear)
+def _refresh_price_and_rate():
+    cached_price.clear()
+    cached_pln_rate.clear()
+
+
+st.button(t(lang, "refresh_price_button"), on_click=_refresh_price_and_rate)
 
 # --- Add transaction ---
 st.subheader(t(lang, "add_transaction_header"))
@@ -226,39 +245,55 @@ else:
     pnl = calc.unrealized_pnl(summary["total_qty"], current_price, breakeven)
     pnl_pct = (pnl / summary["total_invested"] * 100) if summary["total_invested"] else 0.0
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric(t(lang, "total_qty_metric"), f"{summary['total_qty']:.2f}")
-    m2.metric(t(lang, "avg_entry_price_metric"), f"{summary['avg_entry_price']:.4f} {CURRENCY}")
-    m3.metric(t(lang, "total_commission_metric"), f"{summary['total_commission']:.2f} {CURRENCY}")
+    with st.container(border=True):
+        st.caption(t(lang, "position_group_header"))
+        m1, m2 = st.columns(2)
+        m1.metric(t(lang, "total_qty_metric"), f"{summary['total_qty']:.2f}", border=True)
+        m2.metric(t(lang, "avg_entry_price_metric"), f"{summary['avg_entry_price']:.4f} {CURRENCY}", border=True)
 
-    m4, m5, m6 = st.columns(3)
-    m4.metric(t(lang, "overnight_fee_metric"), f"{summary['total_overnight_fee']:.2f} {CURRENCY}")
-    m5.metric(t(lang, "total_invested_metric"), f"{summary['total_invested']:.2f} {CURRENCY}")
-    m6.metric(t(lang, "breakeven_metric"), f"{breakeven:.4f} {CURRENCY}")
+    with st.container(border=True):
+        st.caption(t(lang, "costs_group_header"))
+        m3, m4, m5 = st.columns(3)
+        m3.metric(t(lang, "total_commission_metric"), f"{summary['total_commission']:.2f} {CURRENCY}", border=True)
+        m4.metric(t(lang, "overnight_fee_metric"), f"{summary['total_overnight_fee']:.2f} {CURRENCY}", border=True)
+        m5.metric(t(lang, "total_invested_metric"), f"{summary['total_invested']:.2f} {CURRENCY}", border=True)
 
-    m7, m8 = st.columns(2)
-    m7.metric(t(lang, "target_price_metric", pct=profit_target_pct), f"{target:.4f} {CURRENCY}")
-    m8.metric(
-        t(lang, "pnl_metric"),
-        f"{pnl:+.2f} {CURRENCY}",
-        delta=f"{pnl_pct:+.2f}%",
-        help=f"{current_price:.2f} vs {breakeven:.4f}",
-    )
+    with st.container(border=True):
+        st.caption(t(lang, "price_levels_group_header"))
+        m6, m7 = st.columns(2)
+        m6.metric(t(lang, "breakeven_metric"), f"{breakeven:.4f} {CURRENCY}", border=True)
+        m7.metric(
+            t(lang, "target_price_metric", pct=profit_target_pct), f"{target:.4f} {CURRENCY}", border=True
+        )
 
-    try:
-        pln_rate_data = cached_pln_rate()
-        pln_rate = pln_rate_data["rate"]
-        pnl_pln = pnl * pln_rate
-        m9, m10 = st.columns(2)
-        m9.metric(
-            t(lang, "pnl_pln_metric"),
-            f"{pnl_pln:+.2f} PLN",
+    with st.container(border=True):
+        st.caption(t(lang, "pnl_group_header"))
+        m8, m9 = st.columns(2)
+        m8.metric(
+            t(lang, "pnl_metric"),
+            f"{pnl:+.2f} {CURRENCY}",
             delta=f"{pnl_pct:+.2f}%",
+            help=f"{current_price:.2f} vs {breakeven:.4f}",
+            border=True,
         )
-        m10.metric(
-            t(lang, "usd_pln_rate_metric"),
-            f"{pln_rate:.4f}",
-            delta=pln_rate_data["source"],
-        )
-    except pricing.PriceFetchError as e:
-        st.warning(t(lang, "pln_rate_fetch_error", error=e))
+        try:
+            pln_rate_data = cached_pln_rate(refresh_interval)
+            pln_rate = pln_rate_data["rate"]
+            pnl_pln = pnl * pln_rate
+            m9.metric(
+                t(lang, "pnl_pln_metric"),
+                f"{pnl_pln:+.2f} PLN",
+                delta=f"{pnl_pct:+.2f}%",
+                border=True,
+            )
+            st.caption(
+                t(
+                    lang,
+                    "usd_pln_rate_caption",
+                    rate=f"{pln_rate:.4f}",
+                    source=pln_rate_data["source"],
+                    time=pln_rate_data["fetched_at"].strftime("%H:%M:%S"),
+                )
+            )
+        except pricing.PriceFetchError as e:
+            st.warning(t(lang, "pln_rate_fetch_error", error=e))
