@@ -41,6 +41,11 @@ Open the printed URL (default `http://localhost:8501`) in a browser.
 
 Logs: `streamlit.log` / `streamlit.err.log`. PID: `streamlit.pid`.
 
+**Warning:** `start.ps1`/`stop.ps1` (Windows) and `start.sh`/`stop.sh` (WSL) don't
+see each other's processes — they're different PID namespaces. If you started
+the app with one, stop it with the matching script, not the other. Mixing them
+leaves a real process running while `stop` reports "already stopped".
+
 ## Using the app
 
 - **Sidebar**: language (PL/EN), ticker, overnight financing rate (annual %,
