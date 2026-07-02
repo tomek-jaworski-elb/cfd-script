@@ -58,6 +58,16 @@ def add_transaction(trade_date: str, quantity: float, price: float, commission: 
     conn.close()
 
 
+def update_transaction(tx_id: int, trade_date: str, quantity: float, price: float, commission: float):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE transactions SET trade_date = ?, quantity = ?, price = ?, commission = ? WHERE id = ?",
+        (trade_date, quantity, price, commission, tx_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def delete_transaction(tx_id: int):
     conn = get_connection()
     conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))

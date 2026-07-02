@@ -214,6 +214,26 @@ else:
     summary = calc.summarize(transactions, current_price, overnight_rate)
 
     st.subheader(t(lang, "tranches_header"))
+
+    @st.dialog(t(lang, "edit_tranche_title"))
+    def edit_tranche_dialog(tx):
+        trade_date = st.date_input(t(lang, "date_label"), value=date.fromisoformat(tx["trade_date"]))
+        quantity = st.number_input(
+            t(lang, "quantity_label"), min_value=0.0, step=1.0, value=float(tx["quantity"])
+        )
+        price = st.number_input(
+            t(lang, "price_per_share_label"), min_value=0.0, step=0.01, value=float(tx["price"])
+        )
+        commission = st.number_input(
+            t(lang, "commission_label"), min_value=0.0, step=0.01, value=float(tx["commission"])
+        )
+        if st.button(t(lang, "save_button")):
+            if quantity <= 0 or price <= 0:
+                st.error(t(lang, "qty_price_error"))
+            else:
+                db.update_transaction(tx["id"], trade_date.isoformat(), quantity, price, commission)
+                st.rerun()
+
     tranche_df = pd.DataFrame(summary["per_tranche"])[
         ["id", "trade_date", "quantity", "price", "commission", "nights_held", "overnight_fee"]
     ]
@@ -229,15 +249,26 @@ else:
             "overnight_fee": t(lang, "overnight_fee_col"),
         }
     )
-    st.dataframe(tranche_df, width="stretch", hide_index=True)
-
-    del_id = st.selectbox(
-        t(lang, "delete_select_label"),
-        options=[None] + [tx["id"] for tx in transactions],
+    event = st.dataframe(
+        tranche_df,
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="tranche_table",
     )
-    if del_id and st.button(t(lang, "delete_button")):
-        db.delete_transaction(del_id)
-        st.rerun()
+    selected_rows = event.selection.rows
+    if selected_rows and selected_rows[0] < len(summary["per_tranche"]):
+        tx = summary["per_tranche"][selected_rows[0]]
+        edit_col, del_col, _ = st.columns([1, 1, 4])
+        if edit_col.button(f"✏️ {t(lang, 'edit_button')}", width="stretch"):
+            edit_tranche_dialog(tx)
+        if del_col.button(f"🗑️ {t(lang, 'delete_button')}", width="stretch"):
+            db.delete_transaction(tx["id"])
+            st.session_state.pop("tranche_table", None)
+            st.rerun()
+    else:
+        st.caption(t(lang, "select_row_hint"))
 
     st.subheader(t(lang, "summary_header"))
     breakeven = summary["breakeven_price"]
