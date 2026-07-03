@@ -6,6 +6,7 @@ from datetime import date, datetime, time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -24,6 +25,17 @@ MARKET_OPEN_T = dtime(9, 30)
 MARKET_CLOSE_T = dtime(16, 0)
 VERSION_FILE = Path(__file__).parent / "VERSION"
 HISTORY_MAX_POINTS = 60
+CHART_COLOR = "#2563EB"
+CHART_BREAKEVEN_COLOR = "#DC2626"
+# Range label -> how far back to fetch and at which intraday interval.
+# Intervals grow with the span to keep the point count (and page weight) low.
+CHART_RANGES = {
+    "24h": {"days": 1, "interval": "5m"},
+    "2D": {"days": 2, "interval": "15m"},
+    "3D": {"days": 3, "interval": "15m"},
+    "5D": {"days": 5, "interval": "30m"},
+    "7D": {"days": 7, "interval": "30m"},
+}
 
 
 def app_version():
@@ -44,12 +56,13 @@ def market_status():
 
 
 def track_history(key: str, fetched_at, value: float):
-    """Record each newly fetched value in session state (deduplicated by fetch
-    timestamp). Returns (history_values, prev_value, prev_fetched_at) where the
-    prev_* pair describes the fetch before the current one, or (.., None, None)
-    when the session has only seen a single fetch so far."""
+    """Record fetched values in session state, appending a point only when the
+    value actually differs from the last recorded one — repeated fetches of an
+    unchanged value are ignored. Returns (history_values, prev_value,
+    prev_fetched_at) where the prev_* pair describes the last value different
+    from the current one, or (.., None, None) when no change has been seen yet."""
     hist = st.session_state.setdefault(key, [])
-    if not hist or hist[-1]["fetched_at"] != fetched_at:
+    if not hist or hist[-1]["value"] != value:
         hist.append({"fetched_at": fetched_at, "value": value})
         del hist[:-HISTORY_MAX_POINTS]
     values = [point["value"] for point in hist]
@@ -60,7 +73,7 @@ def track_history(key: str, fetched_at, value: float):
 
 
 def delta_args(lang: str, current: float, prev: float | None, decimals: int, unit: str = ""):
-    """Build st.metric delta kwargs for the change vs the previous fetch.
+    """Build st.metric delta kwargs for the change vs the last different value.
     No previous value -> no delta; a change too small to show at the requested
     precision -> neutral gray 'no change' marker."""
     if prev is None:
@@ -137,6 +150,25 @@ if "last_full_rerun" not in st.session_state:
     st.session_state.last_full_rerun = time.monotonic()
 
 
+@st.cache_data(ttl=refresh_interval)
+def cached_price(tkr: str, _interval: int):
+    data = pricing.get_current_price(tkr)
+    data["fetched_at"] = datetime.now(WARSAW_TZ)
+    return data
+
+
+@st.cache_data(ttl=refresh_interval)
+def cached_pln_rate(_interval: int):
+    data = pricing.get_usd_pln_rate()
+    data["fetched_at"] = datetime.now(WARSAW_TZ)
+    return data
+
+
+@st.cache_data(ttl=refresh_interval)
+def cached_history(tkr: str, days: int, interval: str, _interval: int):
+    return pricing.get_price_history(tkr, days, interval)
+
+
 @st.fragment(run_every=f"{refresh_interval}s")
 def _autorefresh_tick():
     # A fragment's body also runs immediately on every normal (non-scheduled)
@@ -145,6 +177,13 @@ def _autorefresh_tick():
     # to a full-app rerun once the configured interval has actually elapsed.
     if time.monotonic() - st.session_state.last_full_rerun >= refresh_interval:
         st.session_state.last_full_rerun = time.monotonic()
+        # The TTL cache gets populated slightly AFTER last_full_rerun is
+        # stamped, so at this point the cached entry can still look fresh and
+        # would serve the same stale price for one more whole interval. Clear
+        # explicitly so the full-app rerun below always refetches.
+        cached_price.clear()
+        cached_pln_rate.clear()
+        cached_history.clear()
         st.rerun()  # default scope inside a fragment is a full-app rerun
 
 
@@ -170,18 +209,90 @@ def _live_clock(fetched_at, interval_sec, lang):
     )
 
 
-@st.cache_data(ttl=refresh_interval)
-def cached_price(tkr: str, _interval: int):
-    data = pricing.get_current_price(tkr)
-    data["fetched_at"] = datetime.now(WARSAW_TZ)
-    return data
+def render_price_chart(lang: str, tkr: str, breakeven: float | None):
+    """Intraday price chart with a range selector (24h-7D). Interactive Altair
+    area chart: hover tooltip, drag to pan, scroll to zoom (x-axis only),
+    double-click to reset. Optional dashed breakeven rule when it falls inside
+    the visible price range."""
+    range_labels = list(CHART_RANGES)
+    selected = (
+        st.segmented_control(
+            t(lang, "chart_range_label"),
+            range_labels,
+            default=range_labels[0],
+            key="chart_range",
+            label_visibility="collapsed",
+        )
+        or range_labels[0]
+    )
+    cfg = CHART_RANGES[selected]
+    try:
+        hist = cached_history(tkr, cfg["days"], cfg["interval"], refresh_interval)
+    except pricing.PriceFetchError as e:
+        st.warning(t(lang, "history_fetch_error", error=e))
+        return
+    if not hist["points"]:
+        st.info(t(lang, "chart_no_data"))
+        return
 
+    df = pd.DataFrame(hist["points"])
+    # Vega renders naive timestamps as-is, so convert to Warsaw time up front
+    # instead of trusting the browser's timezone.
+    df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(WARSAW_TZ).dt.tz_localize(None)
 
-@st.cache_data(ttl=refresh_interval)
-def cached_pln_rate(_interval: int):
-    data = pricing.get_usd_pln_rate()
-    data["fetched_at"] = datetime.now(WARSAW_TZ)
-    return data
+    lo, hi = float(df["price"].min()), float(df["price"].max())
+    pad = (hi - lo) * 0.08 or hi * 0.002
+    y_scale = alt.Scale(domain=[lo - pad, hi + pad], nice=False)
+    x_axis = alt.Axis(title=None, format="%H:%M" if cfg["days"] == 1 else "%d.%m %H:%M")
+    tooltip = [
+        alt.Tooltip("ts:T", title=t(lang, "chart_time_label"), format="%d.%m %H:%M"),
+        alt.Tooltip("price:Q", title=t(lang, "chart_price_label"), format=".2f"),
+    ]
+
+    area = (
+        alt.Chart(df)
+        .mark_area(
+            interpolate="monotone",
+            line={"color": CHART_COLOR, "strokeWidth": 2},
+            color=alt.Gradient(
+                gradient="linear",
+                stops=[
+                    alt.GradientStop(color="rgba(37, 99, 235, 0.02)", offset=0),
+                    alt.GradientStop(color="rgba(37, 99, 235, 0.30)", offset=1),
+                ],
+                x1=1, x2=1, y1=1, y2=0,
+            ),
+        )
+        .encode(
+            x=alt.X("ts:T", axis=x_axis),
+            y=alt.Y("price:Q", scale=y_scale, axis=alt.Axis(title=None, format=".2f")),
+        )
+    )
+    hover_points = (
+        alt.Chart(df)
+        .mark_point(size=90, opacity=0)
+        .encode(x="ts:T", y=alt.Y("price:Q", scale=y_scale), tooltip=tooltip)
+    )
+    layers = [area, hover_points]
+    if breakeven and lo - pad <= breakeven <= hi + pad:
+        rule_df = pd.DataFrame(
+            {"price": [breakeven], "label": [t(lang, "chart_breakeven_label")]}
+        )
+        layers.append(
+            alt.Chart(rule_df)
+            .mark_rule(strokeDash=[6, 4], strokeWidth=1.5, color=CHART_BREAKEVEN_COLOR, clip=True)
+            .encode(
+                y=alt.Y("price:Q", scale=y_scale),
+                tooltip=[
+                    alt.Tooltip("label:N", title=" "),
+                    alt.Tooltip("price:Q", title=t(lang, "chart_price_label"), format=".4f"),
+                ],
+            )
+        )
+
+    chart = alt.layer(*layers).properties(height=260).interactive(bind_y=False)
+    st.altair_chart(chart, width="stretch")
+    st.caption(t(lang, "chart_caption", source=hist["source"], interval=cfg["interval"]))
 
 
 # --- Live price ---
@@ -238,13 +349,19 @@ except pricing.PriceFetchError as e:
 def _refresh_price_and_rate():
     cached_price.clear()
     cached_pln_rate.clear()
+    cached_history.clear()
 
 st.button(t(lang, "refresh_price_button"), on_click=_refresh_price_and_rate)
 
-# --- Position summary ---
 transactions = db.get_transactions()
 summary = calc.summarize(transactions, current_price, overnight_rate) if transactions else None
 
+# --- Price chart ---
+with st.container(border=True):
+    st.caption(t(lang, "chart_header"))
+    render_price_chart(lang, ticker, summary["breakeven_price"] if summary else None)
+
+# --- Position summary ---
 if summary:
     st.subheader(t(lang, "summary_header"))
     breakeven = summary["breakeven_price"]

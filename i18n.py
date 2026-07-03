@@ -37,6 +37,14 @@ STRINGS = {
             "Regular session: {open}-{close} (Warsaw time), Mon-Fri. "
             "Exchange holidays are not accounted for."
         ),
+        "chart_header": "Price chart",
+        "chart_range_label": "Chart range",
+        "chart_time_label": "Time",
+        "chart_price_label": "Price",
+        "chart_breakeven_label": "Breakeven",
+        "chart_caption": "Source: {source} · interval {interval} · times in Warsaw time",
+        "chart_no_data": "No history data for this range.",
+        "history_fetch_error": "Could not fetch price history: {error}",
         "add_transaction_header": "Add transaction (tranche)",
         "date_label": "Date",
         "quantity_label": "Quantity",
@@ -110,6 +118,14 @@ STRINGS = {
             "Sesja regularna: {open}-{close} (czas warszawski), pon.-pt. "
             "Święta giełdowe nie są uwzględniane."
         ),
+        "chart_header": "Wykres kursu",
+        "chart_range_label": "Zakres wykresu",
+        "chart_time_label": "Czas",
+        "chart_price_label": "Kurs",
+        "chart_breakeven_label": "Próg rentowności",
+        "chart_caption": "Źródło: {source} · interwał {interval} · czasy warszawskie",
+        "chart_no_data": "Brak danych historycznych dla tego zakresu.",
+        "history_fetch_error": "Nie udało się pobrać historii kursu: {error}",
         "add_transaction_header": "Dodaj transakcję (transza)",
         "date_label": "Data",
         "quantity_label": "Ilość",

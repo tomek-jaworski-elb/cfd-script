@@ -8,6 +8,8 @@ Note: the CFD quote a broker shows includes its own spread/financing terms and
 will differ slightly from this underlying exchange price. This module tracks
 the exchange price as a proxy for cost/breakeven calculations.
 """
+from datetime import datetime, timedelta, timezone
+
 import requests
 import yfinance as yf
 
@@ -48,6 +50,61 @@ def get_current_price(ticker: str) -> dict:
     except Exception as primary_err:
         try:
             return _fetch_via_yahoo_chart(ticker)
+        except Exception as fallback_err:
+            raise PriceFetchError(
+                f"yfinance failed ({primary_err}); fallback failed ({fallback_err})"
+            ) from fallback_err
+
+
+def _fetch_history_via_yfinance(ticker: str, start: datetime, interval: str) -> dict:
+    df = yf.Ticker(ticker).history(start=start, interval=interval)
+    closes = df["Close"].dropna() if not df.empty else df
+    if len(closes) == 0:
+        raise PriceFetchError("yfinance returned no history")
+    return {
+        "points": [
+            {"ts": ts.to_pydatetime(), "price": float(price)}
+            for ts, price in closes.items()
+        ],
+        "source": "yfinance",
+    }
+
+
+def _fetch_history_via_yahoo_chart(ticker: str, start: datetime, interval: str) -> dict:
+    resp = requests.get(
+        YAHOO_CHART_URL.format(ticker=ticker),
+        params={
+            "period1": int(start.timestamp()),
+            "period2": int(datetime.now(timezone.utc).timestamp()),
+            "interval": interval,
+        },
+        headers=_HEADERS,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    result = resp.json()["chart"]["result"][0]
+    timestamps = result.get("timestamp") or []
+    closes = result["indicators"]["quote"][0].get("close") or []
+    points = [
+        {"ts": datetime.fromtimestamp(ts, tz=timezone.utc), "price": float(price)}
+        for ts, price in zip(timestamps, closes)
+        if price is not None
+    ]
+    if not points:
+        raise PriceFetchError("yahoo chart returned no history")
+    return {"points": points, "source": "yahoo-chart-fallback"}
+
+
+def get_price_history(ticker: str, days: int, interval: str) -> dict:
+    """Return {points: [{ts, price}, ...], source} covering the last `days` days
+    at the given intraday interval (e.g. "5m", "15m", "30m"). Timestamps are
+    timezone-aware. Raises PriceFetchError if both sources fail."""
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        return _fetch_history_via_yfinance(ticker, start, interval)
+    except Exception as primary_err:
+        try:
+            return _fetch_history_via_yahoo_chart(ticker, start, interval)
         except Exception as fallback_err:
             raise PriceFetchError(
                 f"yfinance failed ({primary_err}); fallback failed ({fallback_err})"

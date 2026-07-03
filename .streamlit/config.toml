@@ -1,0 +1,25 @@
+# App theme: clean light palette with an auto dark variant (follows the
+# browser/system preference). Native Streamlit theming only - no CSS hacks.
+
+[theme]
+primaryColor = "#2563EB"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#EEF2F7"
+textColor = "#0F172A"
+linkColor = "#2563EB"
+borderColor = "#E2E8F0"
+showWidgetBorder = true
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+font = "sans-serif"
+
+[theme.dark]
+primaryColor = "#3B82F6"
+backgroundColor = "#0F172A"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#E2E8F0"
+linkColor = "#60A5FA"
+borderColor = "#334155"
+showWidgetBorder = true
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
