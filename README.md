@@ -54,7 +54,8 @@ leaves a real process running while `stop` reports "already stopped".
 - **Live price** (grouped in one card): price, source, and an open/closed
   market badge with today's regular session hours converted to Warsaw local
   time (NYSE/Nasdaq regular session is 9:30-16:00 US Eastern, Mon-Fri;
-  exchange holidays aren't accounted for). Below that, a live-ticking row
+  NYSE holidays and 13:00 ET early closes are accounted for, and the badge
+  names the holiday when the market is closed for one). Below that, a live-ticking row
   shows "as of HH:MM:SS (Ns ago)" and a "next update in MM:SS" countdown,
   updating every second on their own without reloading the rest of the page.
   The actual price refetch (and P/L recalculation) happens on the configured

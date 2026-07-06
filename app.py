@@ -12,6 +12,7 @@ import streamlit as st
 
 import calc
 import db
+import market_calendar
 import pricing
 from i18n import t
 
@@ -22,7 +23,6 @@ CURRENCY = "USD"
 NY_TZ = ZoneInfo("America/New_York")
 WARSAW_TZ = ZoneInfo("Europe/Warsaw")
 MARKET_OPEN_T = dtime(9, 30)
-MARKET_CLOSE_T = dtime(16, 0)
 VERSION_FILE = Path(__file__).parent / "VERSION"
 HISTORY_MAX_POINTS = 60
 CHART_COLOR = "#2563EB"
@@ -46,13 +46,16 @@ def app_version():
 
 
 def market_status():
-    """Regular NYSE/Nasdaq session (9:30-16:00 ET, Mon-Fri), converted to Warsaw
-    local time. Does not account for exchange holidays."""
+    """Regular NYSE/Nasdaq session converted to Warsaw local time. Accounts for
+    exchange holidays and early-close (13:00 ET) sessions via market_calendar;
+    the last element is the holiday name when today is one, else None."""
     now_ny = datetime.now(NY_TZ)
-    is_open = now_ny.weekday() < 5 and MARKET_OPEN_T <= now_ny.time() < MARKET_CLOSE_T
-    open_warsaw = datetime.combine(now_ny.date(), MARKET_OPEN_T, NY_TZ).astimezone(WARSAW_TZ)
-    close_warsaw = datetime.combine(now_ny.date(), MARKET_CLOSE_T, NY_TZ).astimezone(WARSAW_TZ)
-    return is_open, open_warsaw, close_warsaw
+    today_ny = now_ny.date()
+    close_t = market_calendar.close_time(today_ny)
+    is_open = market_calendar.is_trading_day(today_ny) and MARKET_OPEN_T <= now_ny.time() < close_t
+    open_warsaw = datetime.combine(today_ny, MARKET_OPEN_T, NY_TZ).astimezone(WARSAW_TZ)
+    close_warsaw = datetime.combine(today_ny, close_t, NY_TZ).astimezone(WARSAW_TZ)
+    return is_open, open_warsaw, close_warsaw, market_calendar.holiday_name(today_ny)
 
 
 def track_history(key: str, fetched_at, value: float):
@@ -149,8 +152,17 @@ with st.sidebar:
 if "last_full_rerun" not in st.session_state:
     st.session_state.last_full_rerun = time.monotonic()
 
+is_open, open_warsaw, close_warsaw, holiday_today = market_status()
 
-@st.cache_data(ttl=refresh_interval)
+# Outside regular market hours the stock price and its intraday history do not
+# change, so their caches switch to a long TTL and the auto-refresh tick leaves
+# them alone - only the USD/PLN rate keeps auto-refreshing. The manual refresh
+# button still clears everything.
+MARKET_CLOSED_TTL_SEC = 4 * 3600
+price_ttl = refresh_interval if is_open else MARKET_CLOSED_TTL_SEC
+
+
+@st.cache_data(ttl=price_ttl)
 def cached_price(tkr: str, _interval: int):
     data = pricing.get_current_price(tkr)
     data["fetched_at"] = datetime.now(WARSAW_TZ)
@@ -164,7 +176,7 @@ def cached_pln_rate(_interval: int):
     return data
 
 
-@st.cache_data(ttl=refresh_interval)
+@st.cache_data(ttl=price_ttl)
 def cached_history(tkr: str, days: int, interval: str, _interval: int):
     return pricing.get_price_history(tkr, days, interval)
 
@@ -181,9 +193,14 @@ def _autorefresh_tick():
         # stamped, so at this point the cached entry can still look fresh and
         # would serve the same stale price for one more whole interval. Clear
         # explicitly so the full-app rerun below always refetches.
-        cached_price.clear()
         cached_pln_rate.clear()
-        cached_history.clear()
+        # Stock price and history only move while the market trades - outside
+        # market hours the tick refreshes just the FX rate. Fresh
+        # market_status() call: the fragment fires on a timer, so the module-
+        # level is_open from the last full run may already be stale.
+        if market_status()[0]:
+            cached_price.clear()
+            cached_history.clear()
         st.rerun()  # default scope inside a fragment is a full-app rerun
 
 
@@ -301,7 +318,6 @@ try:
     price_data = cached_price(ticker, refresh_interval)
     fetched_at = price_data["fetched_at"]
     current_price = price_data["price"]
-    is_open, open_warsaw, close_warsaw = market_status()
     price_hist, prev_price, prev_price_at = track_history(
         f"price_history_{ticker}", fetched_at, current_price
     )
@@ -326,8 +342,14 @@ try:
                     )
                 )
         with col_status:
+            if is_open:
+                status_label = t(lang, "market_open")
+            elif holiday_today:
+                status_label = t(lang, "market_closed_holiday", holiday=holiday_today)
+            else:
+                status_label = t(lang, "market_closed")
             st.badge(
-                t(lang, "market_open") if is_open else t(lang, "market_closed"),
+                status_label,
                 icon="🟢" if is_open else "🔴",
                 color="green" if is_open else "gray",
             )
@@ -341,7 +363,14 @@ try:
                 )
             )
 
-        _live_clock(fetched_at, refresh_interval, lang)
+        if is_open:
+            _live_clock(fetched_at, refresh_interval, lang)
+        else:
+            # No countdown when the market is closed - the price won't change,
+            # only the FX rate keeps auto-refreshing in the background.
+            st.caption(
+                t(lang, "market_closed_refresh_caption", time=fetched_at.strftime("%H:%M:%S"))
+            )
 except pricing.PriceFetchError as e:
     st.error(t(lang, "price_fetch_error", error=e))
     current_price = st.number_input(t(lang, "manual_price_label"), min_value=0.0, step=0.01)

@@ -11,8 +11,9 @@ STRINGS = {
         "profit_target_label": "Target profit (%)",
         "refresh_interval_label": "Auto-refresh interval (seconds)",
         "refresh_interval_help": (
-            "How often the live price refreshes automatically. Lower values query "
-            "Yahoo Finance more often; 60s is a reasonable default."
+            "How often the live price refreshes automatically during market hours. "
+            "Outside market hours only the USD/PLN rate keeps auto-refreshing. "
+            "Lower values query Yahoo Finance more often; 60s is a reasonable default."
         ),
         "save_settings_button": "Save settings",
         "settings_saved": "Saved.",
@@ -26,6 +27,9 @@ STRINGS = {
         "source_metric_label": "Source",
         "seconds_ago_suffix": "{s}s ago",
         "live_clock_text": "As of {time} ({ago}) · next update in {left}",
+        "market_closed_refresh_caption": (
+            "Price as of {time} · market closed - auto-refresh updates only the USD/PLN rate"
+        ),
         "prev_value_caption": "Previous: {value} at {time}",
         "no_change_delta": "no change",
         "price_fetch_error": "Could not fetch live price: {error}",
@@ -33,9 +37,10 @@ STRINGS = {
         "refresh_price_button": "Refresh price",
         "market_open": "Open",
         "market_closed": "Closed",
+        "market_closed_holiday": "Closed — {holiday}",
         "market_hours_caption": (
             "Regular session: {open}-{close} (Warsaw time), Mon-Fri. "
-            "Exchange holidays are not accounted for."
+            "NYSE holidays and early closes (13:00 ET) are accounted for."
         ),
         "chart_header": "Price chart",
         "chart_range_label": "Chart range",
@@ -43,7 +48,7 @@ STRINGS = {
         "chart_price_label": "Price",
         "chart_breakeven_label": "Breakeven",
         "chart_caption": "Source: {source} · interval {interval} · times in Warsaw time",
-        "chart_no_data": "No history data for this range.",
+        "chart_no_data": "No trades in this range — market closed (weekend or holiday). Pick a wider range.",
         "history_fetch_error": "Could not fetch price history: {error}",
         "add_transaction_header": "Add transaction (tranche)",
         "date_label": "Date",
@@ -92,7 +97,8 @@ STRINGS = {
         "profit_target_label": "Docelowy zysk (%)",
         "refresh_interval_label": "Interwał auto-odświeżania (sekundy)",
         "refresh_interval_help": (
-            "Jak często kurs odświeża się automatycznie. Niższe wartości częściej "
+            "Jak często kurs odświeża się automatycznie w godzinach sesji. Poza sesją "
+            "automatycznie odświeża się tylko kurs USD/PLN. Niższe wartości częściej "
             "odpytują Yahoo Finance; 60s to rozsądna wartość domyślna."
         ),
         "save_settings_button": "Zapisz ustawienia",
@@ -107,6 +113,9 @@ STRINGS = {
         "source_metric_label": "Źródło",
         "seconds_ago_suffix": "{s}s temu",
         "live_clock_text": "Stan na {time} ({ago}) · następna aktualizacja za {left}",
+        "market_closed_refresh_caption": (
+            "Kurs z {time} · rynek zamknięty - automatycznie odświeża się tylko kurs USD/PLN"
+        ),
         "prev_value_caption": "Poprzednio: {value} o {time}",
         "no_change_delta": "bez zmian",
         "price_fetch_error": "Nie udało się pobrać kursu: {error}",
@@ -114,9 +123,10 @@ STRINGS = {
         "refresh_price_button": "Odśwież kurs",
         "market_open": "Otwarta",
         "market_closed": "Zamknięta",
+        "market_closed_holiday": "Zamknięta — {holiday}",
         "market_hours_caption": (
             "Sesja regularna: {open}-{close} (czas warszawski), pon.-pt. "
-            "Święta giełdowe nie są uwzględniane."
+            "Uwzględnia święta NYSE i sesje skrócone (do 13:00 ET)."
         ),
         "chart_header": "Wykres kursu",
         "chart_range_label": "Zakres wykresu",
@@ -124,7 +134,7 @@ STRINGS = {
         "chart_price_label": "Kurs",
         "chart_breakeven_label": "Próg rentowności",
         "chart_caption": "Źródło: {source} · interwał {interval} · czasy warszawskie",
-        "chart_no_data": "Brak danych historycznych dla tego zakresu.",
+        "chart_no_data": "Brak notowań w tym zakresie — rynek zamknięty (weekend lub święto). Wybierz szerszy zakres.",
         "history_fetch_error": "Nie udało się pobrać historii kursu: {error}",
         "add_transaction_header": "Dodaj transakcję (transza)",
         "date_label": "Data",

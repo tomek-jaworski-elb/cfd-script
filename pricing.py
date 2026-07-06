@@ -59,8 +59,6 @@ def get_current_price(ticker: str) -> dict:
 def _fetch_history_via_yfinance(ticker: str, start: datetime, interval: str) -> dict:
     df = yf.Ticker(ticker).history(start=start, interval=interval)
     closes = df["Close"].dropna() if not df.empty else df
-    if len(closes) == 0:
-        raise PriceFetchError("yfinance returned no history")
     return {
         "points": [
             {"ts": ts.to_pydatetime(), "price": float(price)}
@@ -90,25 +88,32 @@ def _fetch_history_via_yahoo_chart(ticker: str, start: datetime, interval: str) 
         for ts, price in zip(timestamps, closes)
         if price is not None
     ]
-    if not points:
-        raise PriceFetchError("yahoo chart returned no history")
     return {"points": points, "source": "yahoo-chart-fallback"}
 
 
 def get_price_history(ticker: str, days: int, interval: str) -> dict:
     """Return {points: [{ts, price}, ...], source} covering the last `days` days
     at the given intraday interval (e.g. "5m", "15m", "30m"). Timestamps are
-    timezone-aware. Raises PriceFetchError if both sources fail."""
+    timezone-aware. An empty `points` list means a source responded but the
+    window holds no trades (weekend/holiday) — that is not a fetch failure.
+    Raises PriceFetchError only when both sources fail outright."""
     start = datetime.now(timezone.utc) - timedelta(days=days)
-    try:
-        return _fetch_history_via_yfinance(ticker, start, interval)
-    except Exception as primary_err:
+    empty_result = None
+    errors = []
+    for fetch in (_fetch_history_via_yfinance, _fetch_history_via_yahoo_chart):
         try:
-            return _fetch_history_via_yahoo_chart(ticker, start, interval)
-        except Exception as fallback_err:
-            raise PriceFetchError(
-                f"yfinance failed ({primary_err}); fallback failed ({fallback_err})"
-            ) from fallback_err
+            result = fetch(ticker, start, interval)
+        except Exception as err:
+            errors.append(err)
+            continue
+        if result["points"]:
+            return result
+        empty_result = result
+    if empty_result is not None:
+        return empty_result
+    raise PriceFetchError(
+        f"yfinance failed ({errors[0]}); fallback failed ({errors[1]})"
+    ) from errors[-1]
 
 
 NBP_USD_RATE_URL = "https://api.nbp.pl/api/exchangerates/rates/a/usd/?format=json"
